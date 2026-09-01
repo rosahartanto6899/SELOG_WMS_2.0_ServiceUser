@@ -1,0 +1,114 @@
+import Redis from 'ioredis';
+import { default as SecretManager } from '@/shared-libs/utils/secret-manager.util';
+
+export class RedisCache {
+  private static redis: Redis;
+
+  public static getInstance(): Redis {
+    const redisHost = SecretManager.env.REDIS_HOST;
+    const redisPort = parseInt(SecretManager.env.REDIS_PORT || '6379', 10); // Default to 6379 if not provided
+    const redisDb = parseInt(SecretManager.env.REDIS_DB || '0', 10); // Default to DB 0 if not provided
+    const redisPassword = SecretManager.env.REDIS_PASSWORD || undefined;
+
+    if (!redisHost) {
+      throw new Error('REDIS_HOST environment variable is required');
+    }
+
+    // Creating Redis connection only if it does not exist
+    if (!RedisCache.redis) {
+      const redisTls = SecretManager.env.REDIS_TLS === 'true';
+      RedisCache.redis = new Redis({
+        host: redisHost,
+        port: redisPort,
+        db: redisDb,
+        // username: redisUsername, // Will be undefined if not provided
+        password: redisPassword, // Will be undefined if not provided
+        // ponytail: TLS only when REDIS_TLS=true — local redis has no TLS
+        ...(redisTls ? { tls: { rejectUnauthorized: false } } : {}),
+      });
+    }
+
+    RedisCache.redis.on('error', (err) => {
+      console.error('Redis error:', err);
+    });
+
+    // Log successful connection
+    RedisCache.redis.on('ready', () => {
+      console.log('Redis connected successfully');
+    });
+
+    return RedisCache.redis;
+  }
+
+  // Set a value in Redis with optional TTL (time-to-live)
+  async set(key: string, value: unknown, ttl: number = 3600): Promise<void> {
+    const redis = RedisCache.getInstance();
+    const serializedValue = JSON.stringify(value);
+    await redis.set(key, serializedValue, 'EX', ttl);
+  }
+
+  // Select a different Redis database
+  async selectDb(dbNumber: number): Promise<void> {
+    const redis = RedisCache.getInstance();
+    await redis.select(dbNumber);
+  }
+
+  // Get a value from Redis and deserialize it
+  async get<T>(key: string): Promise<T | null> {
+    const redis = RedisCache.getInstance();
+    const cachedValue = await redis.get(key);
+
+    if (!cachedValue) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(cachedValue) as T;
+    } catch (error) {
+      console.error(`Failed to parse JSON from Redis key "${key}":`, error);
+      console.error('Raw value:', cachedValue);
+      // Optionally delete the corrupted cache entry
+      await this.delete(key);
+      return null;
+    }
+  }
+
+  // Delete a key from Redis
+  async delete(key: string): Promise<void> {
+    const redis = RedisCache.getInstance();
+    await redis.del(key);
+  }
+
+  async deleteKeysByPattern(pattern: string): Promise<void> {
+    const redis = RedisCache.getInstance();
+    const stream = redis.scanStream({
+      match: pattern,
+      count: 100, // Jumlah kunci yang diproses per iterasi
+    });
+
+    const pipeline = redis.pipeline();
+    stream.on('data', (keys: string[]) => {
+      if (keys.length) {
+        keys.forEach((key) => pipeline.del(key));
+      }
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      stream.on('end', () => {
+        pipeline
+          .exec()
+          .then(() => resolve())
+          .catch((err) => reject(new Error(err)));
+      });
+      stream.on('error', (err) =>
+        reject(new Error('Redis error: ' + err.message))
+      );
+    });
+  }
+
+  // Flush all data in the current Redis database
+  async flushAll(): Promise<void> {
+    const redis = RedisCache.getInstance();
+    await redis.flushall();
+  }
+}
