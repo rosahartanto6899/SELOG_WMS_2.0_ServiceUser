@@ -1,0 +1,11 @@
+{
+  "github.copilot.chat.commitMessageGeneration.instructions": [
+    {
+      "file": ".vscode/instructions/commit-message.md",
+    }
+  ],
+  "sonarlint.connectedMode.project": {
+    "connectionId": "sonarqube-sera",
+    "projectKey": "WMS_ServiceUser"
+  },
+}

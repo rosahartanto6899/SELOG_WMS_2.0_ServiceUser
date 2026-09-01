@@ -1,0 +1,23 @@
+# EditorConfig helps developers define and maintain consistent coding styles between different editors and IDEs
+# http://editorconfig.org
+
+# Top-most EditorConfig file
+root = true
+
+# Matches all files using the TypeScript extension
+[*.{ts,tsx,js}]
+
+# Charset and encoding
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+
+# Indentation style
+indent_style = space
+indent_size = 2
+
+# Trim trailing whitespace
+trim_trailing_whitespace = true
+
+# Insert a newline character at the end of the file
+insert_final_newline = true
