@@ -8,8 +8,7 @@ import {
   NotFoundException,
 } from '@/shared-libs/exceptions';
 import { AzureAdThird } from '@/integrations/thrid-party/azure-ad.third';
-// import { default as cache } from '@/shared-libs/utils/cache.util'; // ponytail: sementara pakai memory-cache (tanpa Redis)
-import { default as cache } from '@/utils/memory-cache.util';
+import { default as cache } from '@/shared-libs/utils/cache.util'; // restore: shared Redis session store (cross-service auth)
 import { default as SecretManager } from '@/shared-libs/utils/secret-manager.util';
 import { TokenEncryption } from '@/shared-libs/utils/token-encryption.util';
 import { sequelize } from '@/utils/database.util';
@@ -64,17 +63,14 @@ export class LoginService {
 
       if (!user?.isActive) throw new NotFoundException('User not found');
 
-      const data = this.generateToken(user);
+      const data = await this.generateToken(user);
+
+      await this.storeToRedis(user, data.accessToken, data.user.roleName);
 
       // Core login operations in transaction
       await this.saveLoginHistory(user, data.user.roleName, t);
       await this.saveUserLoginActivity(req, user, t);
-
-      // Commit transaction before Redis operations
       await t.commit();
-
-      // Redis operations outside transaction (non-critical for login success)
-      await this.storeToRedis(user, data.accessToken, data.user.roleName);
 
       return {
         data: data,
@@ -100,13 +96,12 @@ export class LoginService {
       const valid = await argon2.verify(user.password ?? '', password);
       if (!valid) throw new NotFoundException('User not found');
 
-      const data = this.generateToken(user);
+      const data = await this.generateToken(user);
 
+      await this.storeToRedis(user, data.accessToken, data.user.roleName);
       await this.saveLoginHistory(user, data.user.roleName, t);
       await this.saveUserLoginActivity(req, user, t);
       await t.commit();
-
-      await this.storeToRedis(user, data.accessToken, data.user.roleName);
 
       return { data, httpCode: HTTP_STATUS.OK };
     } catch (error) {
@@ -144,16 +139,13 @@ export class LoginService {
         name: userToken.tokenRoles.find((role) => role.id == roleId).name,
       };
 
-      const data = this.generateToken(user, tokenRole);
+      const data = await this.generateToken(user, tokenRole);
+
+      await this.storeToRedis(user, data.accessToken, tokenRole.name);
 
       // Core operations in transaction
       await this.saveLoginHistory(user, tokenRole.name, t);
-
-      // Commit transaction before Redis operations
       await t.commit();
-
-      // Redis operations outside transaction
-      await this.storeToRedis(user, data.accessToken, tokenRole.name);
 
       return {
         data: data,
@@ -192,13 +184,13 @@ export class LoginService {
         throw new ForbiddenException('forbidden access');
       }
 
-      const data = this.generateToken(user, null, { id: customerId });
+      const data = await this.generateToken(user, null, { id: customerId });
 
       await this.storeToRedis(
         user,
         data.accessToken,
         data.user.roleName,
-        customerId,
+        customerId
       );
 
       return { data, httpCode: HTTP_STATUS.OK };
@@ -560,7 +552,7 @@ export class LoginService {
     return ip;
   }
 
-  private generateToken(user: any, tokenRole: any = null, tokenCustomer: any = null) {
+  private async generateToken(user: any, tokenRole: any = null, tokenCustomer: any = null) {
     if (user?.asRole && !tokenRole) {
       const role = user.userRoles.find((r: any) => r.role.name === user.asRole);
       if (role) {
@@ -595,11 +587,50 @@ export class LoginService {
     const activeCustomerId =
       tokenCustomer?.id || accessibleCustomers[0] || null;
 
+    // klaim warehouse & customer (code/name) untuk validasi akses
+    // warehouse (mis. upload AHM) — stateless, dibawa di JWT.
+    // Warehouse dibatasi ke ROLE AKTIF saja (konsisten dengan menus).
+    const activeUserRole = user.userRoles.find(
+      (ur: any) => ur.role?.id === roleId,
+    );
+    const allUserRoleWarehouses = activeUserRole?.warehouses || [];
+    const accessibleWarehouses = Array.from(
+      new Map<string, { warehouseCode: string; warehouseName: string | null }>(
+        allUserRoleWarehouses
+          .filter((w: any) => w.warehouse?.code)
+          .map((w: any) => [
+            w.warehouse.code,
+            {
+              warehouseCode: w.warehouse.code,
+              warehouseName: w.warehouse.name ?? null,
+            },
+          ]),
+      ).values(),
+    );
+    const activeCustomer =
+      allUserRoleWarehouses.find(
+        (w: any) => w.warehouse?.customerId === activeCustomerId,
+      )?.warehouse?.customer ?? null;
+
+    // menus di klaim JWT — verifikasi stateless tanpa cache/Redis
+    const userMenus = roleId
+      ? await this.userRepository.getUserAccessibleMenusByRole(user.id, roleId)
+      : [];
+
     const payloadAccess: IPayloadJwt = {
       sub: user.id,
       iss: SecretManager.env.BASE_URL,
       type: 'access',
       customerId: activeCustomerId,
+      email: user.email,
+      name: user.name,
+      role: asRole,
+      roleId: roleId,
+      roles: roles,
+      menus: userMenus,
+      customerCode: activeCustomer?.code ?? null,
+      customerName: activeCustomer?.name ?? null,
+      warehouses: accessibleWarehouses,
     };
 
     const payloadRefresh: IPayloadJwt = {
@@ -641,52 +672,51 @@ export class LoginService {
     };
   }
 
+  /**
+   * Simpan session user ke Redis — dibaca lintas service (auth terpusat).
+   */
   private async storeToRedis(
     user: any,
     accessToken: string,
     tokenRoleName: string = null,
     activeCustomerId: string = null
   ) {
-    // Determine the active role ID
     const activeRole = tokenRoleName
       ? user.userRoles.find((ur: any) => ur.role.name === tokenRoleName)?.role
       : user.userRoles[0]?.role;
 
-    const activeRoleId = activeRole?.id;
-
-    // Get user accessible menus for the active role only
-    const userMenus = activeRoleId
+    const userMenus = activeRole?.id
       ? await this.userRepository.getUserAccessibleMenusByRole(
           user.id,
-          activeRoleId
+          activeRole.id
         )
       : [];
 
-    let data = {
+    const data = {
       id: user.id,
       token: accessToken,
       email: user.email,
       name: user.name,
       role: tokenRoleName || user.userRoles[0]?.role.name,
       customerId: activeCustomerId,
-      roles: user.userRoles.map((role) => ({
+      roles: user.userRoles.map((role: any) => ({
         id: role.role.id,
         name: role.role.name,
         description: role.description,
-        warehouses: (role.warehouses || []).map((w) => w.warehouseId),
+        warehouses: (role.warehouses || []).map((w: any) => w.warehouseId),
         customers: Array.from(
           new Set(
             (role.warehouses || [])
-              .map((w) => w.warehouse?.customerId)
+              .map((w: any) => w.warehouse?.customerId)
               .filter(Boolean),
           ),
         ),
       })),
-      menus: userMenus || [], // Add accessible menus for active role to Redis cache
+      menus: userMenus || [],
     };
 
     await cache.delete(`tokenAccess:${user.id}`);
-    // Store with encrypted token as the key
     await cache.set(`tokenAccess:${user.id}`, data);
   }
+
 }

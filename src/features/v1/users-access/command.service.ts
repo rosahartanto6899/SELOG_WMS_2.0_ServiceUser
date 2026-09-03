@@ -6,13 +6,10 @@ import {
   BadRequestException,
   NotFoundException,
 } from '@/shared-libs/exceptions';
-// import { default as cache } from '@/shared-libs/utils/cache.util'; // ponytail: sementara pakai memory-cache (tanpa Redis)
-import { default as cache } from '@/utils/memory-cache.util';
 import {
   MenuRepository,
   RoleRepository,
   UamRepository,
-  UserRepository,
 } from './repositories';
 import { CreatePermissionDto, UpdateByIdDto } from './dtos';
 
@@ -22,7 +19,6 @@ export class CommandService {
     @inject(UamRepository) private readonly uamRepository: UamRepository,
     @inject(MenuRepository) private readonly menuRepository: MenuRepository,
     @inject(RoleRepository) private readonly roleRepository: RoleRepository,
-    @inject(UserRepository) private readonly userRepository: UserRepository,
   ) {}
 
   /**
@@ -34,7 +30,6 @@ export class CommandService {
    * 3. Checks whether the menu referenced by the existing UAM (`data.menuId`) has child menus. If children exist, throws BadRequestException because permissions must be assigned to sub-menus instead of a parent menu.
    * 4. Maps integer permission flags in the request body (`isRead`, `isCreate`, `isUpdate`, `isDelete`) to boolean values (`canRead`, `canCreate`, `canUpdate`, `canDelete`).
    * 5. Sets `updatedBy` to the authenticated user's `tokenUserId` and updates the UAM record in the repository.
-   * 6. Invalidates related cached access tokens by calling `deleteCacheTokenAccess` with the UAM's `roleId`.
    * 7. Returns a resolved promise containing the transformed updated record and an HTTP status code (HTTP_STATUS.OK).
    *
    * Notes:
@@ -83,8 +78,6 @@ export class CommandService {
       };
       const updatedData = await this.uamRepository.update(id, dataUpdate);
 
-      await this.deleteCacheTokenAccess(data.roleId);
-
       return {
         data: ByIdTransform.object(updatedData),
         httpCode: HTTP_STATUS.OK,
@@ -104,7 +97,6 @@ export class CommandService {
    * 1. Retrieves the UAM entry by `id`.
    * 2. If not found, throws a NotFoundException.
    * 3. Deletes the entry via the repository, using the authenticated user's `tokenUserId` for auditing.
-   * 4. Invalidates related cache/token access for the deleted entry's `roleId`.
    * 5. Returns an object indicating success with `data: null` and `httpCode: HTTP_STATUS.OK`.
    *
    * @param id - The identifier of the UAM entry to delete.
@@ -126,8 +118,6 @@ export class CommandService {
       }
 
       await this.uamRepository.delete(id, user.tokenUserId);
-
-      await this.deleteCacheTokenAccess(data.roleId);
 
       return {
         data: null,
@@ -151,7 +141,6 @@ export class CommandService {
    * - Prevents assigning permissions to a menu that has sub-menus. Throws BadRequestException(...) if the menu has children.
    * - Maps incoming flag fields (isRead, isCreate, isUpdate, isDelete) where a value of `1` means the permission is granted.
    * - Sets canEtc to false and createdBy to the current user's tokenUserId.
-   * - Persists the UAM via the repository and clears cached access tokens for the role.
    *
    * @param req - Express request. Expects:
    *   - req.user to be populated as IDataUser (must include tokenUserId),
@@ -217,8 +206,6 @@ export class CommandService {
 
       const uam = await this.uamRepository.create(dataCreate);
 
-      await this.deleteCacheTokenAccess(body.roleId);
-
       return {
         data: uam,
         httpCode: HTTP_STATUS.CREATED,
@@ -228,28 +215,6 @@ export class CommandService {
         throw error;
       }
       throw new Error('Unknown error');
-    }
-  }
-
-  /**
-   * Removes cached access tokens for all users that have the given role.
-   *
-   * This method queries the user repository for users assigned to the provided
-   * roleId and deletes each user's token access cache entry (keyed as
-   * `tokenAccess:<userId>`). Use this when role membership changes or when
-   * role permissions are updated and cached tokens must be invalidated.
-   *
-   * @param roleId - The identifier of the role whose users' token caches should be cleared.
-   *                 Must be a valid, non-empty role id.
-   * @returns A promise that resolves once all relevant cache entries have been deleted.
-   * @throws If retrieving users or deleting cache entries fails, the returned promise
-   *         will reject with the underlying error.
-   */
-  private async deleteCacheTokenAccess(roleId: string) {
-    const usersWithRole = await this.userRepository.getUsersByRoleId(roleId);
-
-    for (const user of usersWithRole) {
-      await cache.delete(`tokenAccess:${user.id}`);
     }
   }
 }
