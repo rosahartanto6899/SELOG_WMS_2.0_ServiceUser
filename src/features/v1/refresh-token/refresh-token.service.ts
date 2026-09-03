@@ -160,15 +160,10 @@ export class RefreshTokenService {
       menus: userMenus,
     });
 
-    await cache.set(
-      'tokenBlacklist:' + blaklistRefreshToken,
-      blaklistRefreshToken,
-      60
-    );
-    await cache.set(
-      `tokenAccess:${user.id}`,
-      data,
-      Number(SecretManager.env.JWT_ACCESS_EXPIRES_IN),
-    );
+    return {
+      type: 'bearer',
+      accessToken: encryptedAccessToken,
+      refreshToken,
+    };
   }
 }
