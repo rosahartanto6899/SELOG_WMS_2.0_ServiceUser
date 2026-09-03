@@ -1,8 +1,6 @@
 import { injectable, inject } from 'inversify';
 import { BadRequestException, ForbiddenException } from '@/shared-libs/exceptions';
 import { HTTP_STATUS } from '@/shared-libs/constants/http-status.constant';
-// import { default as cache } from '@/shared-libs/utils/cache.util'; // ponytail: sementara pakai memory-cache (tanpa Redis)
-import { default as cache } from '@/utils/memory-cache.util';
 import {
   IDataUser,
   IDataUserRole,
@@ -185,7 +183,6 @@ export class CommandService {
    *    - Remove existing user-role assignments for the user.
    *    - Insert new user-role assignments from `body.roles`, and for each created user-role record, insert the
    *      corresponding user-role-branch records.
-   *    - Invalidate the user's cached token access key `tokenAccess:{userId}` (set to null with TTL 2).
    *
    * Expected inputs:
    * - id: string — identifier of the user to update.
@@ -208,7 +205,6 @@ export class CommandService {
    * Side effects:
    * - Mutates database state (user, user roles, user role branches) inside a transaction.
    * - Calls external masterDataService to validate branches.
-   * - Invalidates cache key `tokenAccess:{userId}`.
    *
    * Throws:
    * - BadRequestException when one or more provided branch ids are not registered in master data.
@@ -216,7 +212,6 @@ export class CommandService {
    *
    * Notes:
    * - The method relies on injected repositories and services: userRepository, userRoleRepository,
-   *   userRoleBranchRepository, masterDataService, sequelize (for transactions), cache, and uses Sequelize Op.
    * - The returned HTTP code on success is HTTP_STATUS.OK and the response body contains data: null.
    *
    * @param id - The user identifier to update.
@@ -339,7 +334,6 @@ export class CommandService {
         }
       });
 
-      await cache.delete(`tokenAccess:${id}`);
 
       return {
         data: null,

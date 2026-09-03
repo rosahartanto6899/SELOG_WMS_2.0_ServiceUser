@@ -5,6 +5,7 @@ import {
   Role,
   UserRoleWarehouse,
   Warehouse,
+  Customer,
   Uam,
   Menu,
 } from '@/database/entities';
@@ -33,6 +34,7 @@ export class UserRepository {
                 {
                   model: Warehouse,
                   as: 'warehouse',
+                  include: [{ model: Customer, as: 'customer' }],
                 },
               ],
             },

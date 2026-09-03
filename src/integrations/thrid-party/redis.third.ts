@@ -23,7 +23,7 @@ export class RedisCache {
         db: redisDb,
         // username: redisUsername, // Will be undefined if not provided
         password: redisPassword, // Will be undefined if not provided
-        // ponytail: TLS only when REDIS_TLS=true — local redis has no TLS
+        // TLS only when REDIS_TLS=true — local redis has no TLS
         ...(redisTls ? { tls: { rejectUnauthorized: false } } : {}),
       });
     }

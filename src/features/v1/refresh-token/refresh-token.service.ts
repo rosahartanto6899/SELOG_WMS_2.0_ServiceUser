@@ -5,8 +5,7 @@ import {
   UnauthorizedException,
   ForbiddenException,
 } from '@/shared-libs/exceptions';
-// import { default as cache } from '@/shared-libs/utils/cache.util'; // ponytail: sementara pakai memory-cache (tanpa Redis)
-import { default as cache } from '@/utils/memory-cache.util';
+import { default as cache } from '@/shared-libs/utils/cache.util'; // restore: shared Redis session store (cross-service auth)
 import { default as SecretManager } from '@/shared-libs/utils/secret-manager.util';
 import { TokenEncryption } from '@/shared-libs/utils/token-encryption.util';
 import { UserRepository } from './repositories';
@@ -30,7 +29,7 @@ export class RefreshTokenService {
     const decode = this.validateToken(blaklistRefreshToken);
     const user = await this.userRepository.getById(decode.sub);
 
-    const data = await this.generateToken(user, blaklistRefreshToken, decode);
+    const data = await this.generateToken(user, blaklistRefreshToken);
 
     return {
       data: data,
@@ -59,15 +58,68 @@ export class RefreshTokenService {
 
     return decode;
   }
-  private async generateToken(
-    user: any,
-    blaklistRefreshToken: string,
-    decode: any
-  ) {
+  private async generateToken(user: any, blaklistRefreshToken: string) {
+    // Determine the active role ID
+    const activeRole = user.userRoles.find(
+      (ur: any) => ur.role.name === user.asRole
+    )?.role;
+    const activeRoleId = activeRole?.id;
+
+    // identitas di klaim JWT — verifikasi stateless tanpa cache/Redis
+    const userMenus = activeRoleId
+      ? await this.userRepository.getUserAccessibleMenusByRole(
+          user.id,
+          activeRoleId
+        )
+      : [];
+
+    const roles = user.userRoles.map((role) => ({
+      id: role.role.id,
+      name: role.role.name,
+      description: role.role.description,
+      branches: role.branches.map((branch) => branch.branchId),
+    }));
+
+    // klaim warehouse & customer (code/name) untuk validasi akses warehouse.
+    // Warehouse dibatasi ke ROLE AKTIF saja (konsisten dengan menus).
+    const allUserRoleWarehouses =
+      user.userRoles.find(
+        (ur: any) => ur.role?.name === user.asRole,
+      )?.warehouses || [];
+    const accessibleWarehouses = Array.from(
+      new Map<string, { warehouseCode: string; warehouseName: string | null }>(
+        allUserRoleWarehouses
+          .filter((w: any) => w.warehouse?.code)
+          .map((w: any) => [
+            w.warehouse.code,
+            {
+              warehouseCode: w.warehouse.code,
+              warehouseName: w.warehouse.name ?? null,
+            },
+          ]),
+      ).values(),
+    );
+    const activeCustomerId =
+      allUserRoleWarehouses.find((w: any) => w.warehouse?.customerId)
+        ?.warehouse?.customerId ?? null;
+    const activeCustomer =
+      allUserRoleWarehouses.find(
+        (w: any) => w.warehouse?.customerId === activeCustomerId,
+      )?.warehouse?.customer ?? null;
+
     const payloadAccess: IPayloadJwt = {
       sub: user.id,
       iss: SecretManager.env.BASE_URL,
       type: 'access',
+      email: user.email,
+      name: user.name,
+      role: user.asRole,
+      roleId: activeRoleId,
+      roles: roles,
+      menus: userMenus,
+      customerCode: activeCustomer?.code ?? null,
+      customerName: activeCustomer?.name ?? null,
+      warehouses: accessibleWarehouses,
     };
 
     const payloadRefresh: IPayloadJwt = {
@@ -90,55 +142,23 @@ export class RefreshTokenService {
     // Encrypt the access token for enhanced security
     const encryptedAccessToken = TokenEncryption.encrypt(accessToken);
 
-    await this.storeToRedis(encryptedAccessToken, blaklistRefreshToken, decode);
+    // Rotasi refresh token: blacklist token lama agar tidak dipakai ulang
+    await cache.set(
+      'tokenBlacklist:' + blaklistRefreshToken,
+      blaklistRefreshToken,
+      60
+    );
 
-    return {
-      type: 'bearer',
-      accessToken: encryptedAccessToken,
-      refreshToken,
-    };
-  }
-
-  private async storeToRedis(
-    encryptedAccessToken: string,
-    blaklistRefreshToken: string,
-    decode: any
-  ): Promise<void> {
-    const { sub } = decode;
-
-    const user = await this.userRepository.getById(sub);
-
-    // Determine the active role ID
-    const activeRole = user.userRoles.find(
-      (ur: any) => ur.role.name === user.asRole
-    )?.role;
-
-    const activeRoleId = activeRole?.id;
-
-    // Get user accessible menus for the active role only
-    const userMenus = activeRoleId
-      ? await this.userRepository.getUserAccessibleMenusByRole(
-          user.id,
-          activeRoleId
-        )
-      : [];
-
-    let data = {
-      id: sub,
+    // Session store lintas service (auth terpusat di Redis)
+    await cache.set(`tokenAccess:${user.id}`, {
+      id: user.id,
       token: encryptedAccessToken,
       email: user.email,
       name: user.name,
       role: user.asRole,
-      roles: [],
+      roles: roles,
       menus: userMenus,
-    };
-
-    data.roles = user.userRoles.map((role) => ({
-      id: role.role.id,
-      name: role.role.name,
-      description: role.role.description,
-      branches: role.branches.map((branch) => branch.branchId),
-    }));
+    });
 
     await cache.set(
       'tokenBlacklist:' + blaklistRefreshToken,
