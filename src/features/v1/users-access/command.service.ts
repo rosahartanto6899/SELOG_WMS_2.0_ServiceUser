@@ -150,7 +150,7 @@ export class CommandService {
    * - Prevents creating a duplicate UAM for the same roleId + menuId. Throws BadRequestException('UAM already exist') if one exists.
    * - Prevents assigning permissions to a menu that has sub-menus. Throws BadRequestException(...) if the menu has children.
    * - Maps incoming flag fields (isRead, isCreate, isUpdate, isDelete) where a value of `1` means the permission is granted.
-   * - Sets canEtc to false and createdBy to the current user's tokenUserId.
+   * - Sets createdBy to the current user's tokenUserId.
    * - Persists the UAM via the repository and clears cached access tokens for the role.
    *
    * @param req - Express request. Expects:
@@ -211,7 +211,6 @@ export class CommandService {
         canCreate: body.isCreate === 1,
         canUpdate: body.isUpdate === 1,
         canDelete: body.isDelete === 1,
-        canEtc: false,
         createdBy: user.tokenUserId,
       };
 

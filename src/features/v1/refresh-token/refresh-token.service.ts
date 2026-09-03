@@ -145,6 +145,10 @@ export class RefreshTokenService {
       blaklistRefreshToken,
       60
     );
-    await cache.set(`tokenAccess:${user.id}`, data);
+    await cache.set(
+      `tokenAccess:${user.id}`,
+      data,
+      Number(SecretManager.env.JWT_ACCESS_EXPIRES_IN),
+    );
   }
 }

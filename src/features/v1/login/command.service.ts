@@ -686,7 +686,11 @@ export class LoginService {
     };
 
     await cache.delete(`tokenAccess:${user.id}`);
-    // Store with encrypted token as the key
-    await cache.set(`tokenAccess:${user.id}`, data);
+    // Store with encrypted token as the key, TTL matched to the access token's own lifetime
+    await cache.set(
+      `tokenAccess:${user.id}`,
+      data,
+      Number(SecretManager.env.JWT_ACCESS_EXPIRES_IN),
+    );
   }
 }

@@ -42,10 +42,6 @@ const Uam: ModelDefined<UamAttributes, UamCreationAttributes> =
         type: DataTypes.BOOLEAN,
         allowNull: false,
       },
-      canEtc: {
-        type: DataTypes.BOOLEAN,
-        allowNull: false,
-      },
 
       createdBy: {
         type: DataTypes.UUIDV4,
