@@ -10,7 +10,6 @@ export interface UamAttributes {
   canRead: boolean;
   canUpdate: boolean;
   canDelete: boolean;
-  canEtc: boolean;
   createdAt?: Date;
   createdBy?: string;
   updatedAt?: Date;

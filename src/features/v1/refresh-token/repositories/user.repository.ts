@@ -63,13 +63,7 @@ export class UserRepository {
         {
           model: Uam,
           as: 'uams',
-          attributes: [
-            'canCreate',
-            'canRead',
-            'canUpdate',
-            'canDelete',
-            'canEtc',
-          ],
+          attributes: ['canCreate', 'canRead', 'canUpdate', 'canDelete'],
           where: {
             deletedAt: { [Op.is]: null },
             canRead: true, // At least read permission is required
@@ -124,7 +118,7 @@ export class UserRepository {
         canRead: uam?.canRead || false,
         canUpdate: uam?.canUpdate || false,
         canDelete: uam?.canDelete || false,
-        canEtc: uam?.canEtc || false,
+        canEtc: false,
       };
 
       menuMap.set(menuId, {
