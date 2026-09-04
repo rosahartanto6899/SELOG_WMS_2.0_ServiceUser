@@ -8,6 +8,7 @@ interface IPayloadJwt {
   menus?: any[];
   email?: string;
   customerCode?: string | null;
+  customerId?: string | null;
   customerName?: string | null;
   warehouses?: { warehouseCode: string; warehouseName: string | null }[];
   type: string;

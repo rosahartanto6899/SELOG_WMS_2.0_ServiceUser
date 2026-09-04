@@ -11,6 +11,7 @@ import { Op } from 'sequelize';
 import {
   InternalServerErrorException,
   NotFoundException,
+  UnauthorizedException,
 } from '@/shared-libs/exceptions';
 
 @injectable()
@@ -110,6 +111,12 @@ export class QueryService {
     const role = await this.roleRepository.getOneByConditions({
       name: user.tokenRole,
     });
+
+    if (!role) {
+      throw new UnauthorizedException(
+        'Session invalid: token missing role claim, please re-login'
+      );
+    }
     const roleId = role.id;
 
     // Get menus with UAM records and build complete hierarchy

@@ -8,6 +8,7 @@ import {
   NotFoundException,
 } from '@/shared-libs/exceptions';
 import { AzureAdThird } from '@/integrations/thrid-party/azure-ad.third';
+import { Customer } from '@/database/entities';
 import { default as cache } from '@/shared-libs/utils/cache.util'; // restore: shared Redis session store (cross-service auth)
 import { default as SecretManager } from '@/shared-libs/utils/secret-manager.util';
 import { TokenEncryption } from '@/shared-libs/utils/token-encryption.util';
@@ -65,7 +66,7 @@ export class LoginService {
 
       const data = await this.generateToken(user);
 
-      await this.storeToRedis(user, data.accessToken, data.user.roleName);
+      await this.storeToRedis(data.session);
 
       // Core login operations in transaction
       await this.saveLoginHistory(user, data.user.roleName, t);
@@ -98,7 +99,7 @@ export class LoginService {
 
       const data = await this.generateToken(user);
 
-      await this.storeToRedis(user, data.accessToken, data.user.roleName);
+      await this.storeToRedis(data.session);
       await this.saveLoginHistory(user, data.user.roleName, t);
       await this.saveUserLoginActivity(req, user, t);
       await t.commit();
@@ -139,9 +140,12 @@ export class LoginService {
         name: userToken.tokenRoles.find((role) => role.id == roleId).name,
       };
 
-      const data = await this.generateToken(user, tokenRole);
+      // keep the same access token on role switch — the role context lives in
+      // the Redis session, so requests still using the old token don't 401
+      const currentToken = req.headers.authorization?.split(' ')[1];
+      const data = await this.generateToken(user, tokenRole, null, currentToken);
 
-      await this.storeToRedis(user, data.accessToken, tokenRole.name);
+      await this.storeToRedis(data.session);
 
       // Core operations in transaction
       await this.saveLoginHistory(user, tokenRole.name, t);
@@ -184,14 +188,18 @@ export class LoginService {
         throw new ForbiddenException('forbidden access');
       }
 
-      const data = await this.generateToken(user, null, { id: customerId });
-
-      await this.storeToRedis(
+      // keep the same access token on customer switch — the customer context
+      // lives in the Redis session, so requests still using the old token
+      // don't 401 (this race used to log the user out on switch-customer)
+      const currentToken = req.headers.authorization?.split(' ')[1];
+      const data = await this.generateToken(
         user,
-        data.accessToken,
-        data.user.roleName,
-        customerId
+        null,
+        { id: customerId },
+        currentToken
       );
+
+      await this.storeToRedis(data.session);
 
       return { data, httpCode: HTTP_STATUS.OK };
     } catch (error) {
@@ -552,7 +560,12 @@ export class LoginService {
     return ip;
   }
 
-  private async generateToken(user: any, tokenRole: any = null, tokenCustomer: any = null) {
+  private async generateToken(
+    user: any,
+    tokenRole: any = null,
+    tokenCustomer: any = null,
+    reuseAccessToken: string = null
+  ) {
     if (user?.asRole && !tokenRole) {
       const role = user.userRoles.find((r: any) => r.role.name === user.asRole);
       if (role) {
@@ -587,9 +600,9 @@ export class LoginService {
     const activeCustomerId =
       tokenCustomer?.id || accessibleCustomers[0] || null;
 
-    // klaim warehouse & customer (code/name) untuk validasi akses
-    // warehouse (mis. upload AHM) — stateless, dibawa di JWT.
-    // Warehouse dibatasi ke ROLE AKTIF saja (konsisten dengan menus).
+    // warehouse & customer (code/name) for warehouse access validation
+    // (e.g. AHM upload) — stored in the Redis session, not in JWT claims.
+    // Warehouses are limited to the ACTIVE ROLE only (consistent with menus).
     const activeUserRole = user.userRoles.find(
       (ur: any) => ur.role?.id === roleId,
     );
@@ -607,12 +620,17 @@ export class LoginService {
           ]),
       ).values(),
     );
+    // Fallback: the active customer may not be joined through the role
+    // warehouses (e.g. warehouse rows without CustomerId) — resolve directly
+    // by PK so customerCode is always set when an active customer exists.
     const activeCustomer =
       allUserRoleWarehouses.find(
         (w: any) => w.warehouse?.customerId === activeCustomerId,
-      )?.warehouse?.customer ?? null;
+      )?.warehouse?.customer ??
+      (activeCustomerId
+        ? ((await Customer.findByPk(activeCustomerId))?.get({ plain: true }) ?? null)
+        : null);
 
-    // menus di klaim JWT — verifikasi stateless tanpa cache/Redis
     const userMenus = roleId
       ? await this.userRepository.getUserAccessibleMenusByRole(user.id, roleId)
       : [];
@@ -621,16 +639,6 @@ export class LoginService {
       sub: user.id,
       iss: SecretManager.env.BASE_URL,
       type: 'access',
-      customerId: activeCustomerId,
-      email: user.email,
-      name: user.name,
-      role: asRole,
-      roleId: roleId,
-      roles: roles,
-      menus: userMenus,
-      customerCode: activeCustomer?.code ?? null,
-      customerName: activeCustomer?.name ?? null,
-      warehouses: accessibleWarehouses,
     };
 
     const payloadRefresh: IPayloadJwt = {
@@ -640,9 +648,6 @@ export class LoginService {
       roleId: roleId,
     };
 
-    const accessToken = jwt.sign(payloadAccess, SecretManager.env.JWT_SECRET, {
-      expiresIn: SecretManager.env.JWT_ACCESS_EXPIRES_IN,
-    });
     const refreshToken = jwt.sign(
       payloadRefresh,
       SecretManager.env.JWT_SECRET,
@@ -651,13 +656,34 @@ export class LoginService {
       }
     );
 
-    // Encrypt the access token for enhanced security
-    const encryptedAccessToken = TokenEncryption.encrypt(accessToken);
+    // Encrypt the access token for enhanced security. On role/customer switch
+    // the old token is reused — the {sub, iss, type} claims don't change, only
+    // the Redis session is updated, so the client never has to swap tokens.
+    const encryptedAccessToken =
+      reuseAccessToken ??
+      TokenEncryption.encrypt(
+        jwt.sign(payloadAccess, SecretManager.env.JWT_SECRET, {
+          expiresIn: SecretManager.env.JWT_ACCESS_EXPIRES_IN,
+        })
+      );
 
     return {
       type: 'bearer',
       accessToken: encryptedAccessToken,
       refreshToken,
+      session: {
+        id: user.id,
+        token: encryptedAccessToken,
+        email: user.email,
+        name: user.name,
+        role: asRole,
+        customerId: activeCustomerId,
+        customerCode: activeCustomer?.code ?? null,
+        customerName: activeCustomer?.name ?? null,
+        roles: roles,
+        menus: userMenus,
+        warehouses: accessibleWarehouses,
+      },
       user: {
         id: user.id,
         email: user.email,
@@ -673,53 +699,15 @@ export class LoginService {
   }
 
   /**
-   * Simpan session user ke Redis — dibaca lintas service (auth terpusat).
+   * Store the user session in Redis — read by the verify-jwt middleware
+   * (centralized auth).
    */
-  private async storeToRedis(
-    user: any,
-    accessToken: string,
-    tokenRoleName: string = null,
-    activeCustomerId: string = null
-  ) {
-    const activeRole = tokenRoleName
-      ? user.userRoles.find((ur: any) => ur.role.name === tokenRoleName)?.role
-      : user.userRoles[0]?.role;
-
-    const userMenus = activeRole?.id
-      ? await this.userRepository.getUserAccessibleMenusByRole(
-          user.id,
-          activeRole.id
-        )
-      : [];
-
-    const data = {
-      id: user.id,
-      token: accessToken,
-      email: user.email,
-      name: user.name,
-      role: tokenRoleName || user.userRoles[0]?.role.name,
-      customerId: activeCustomerId,
-      roles: user.userRoles.map((role: any) => ({
-        id: role.role.id,
-        name: role.role.name,
-        description: role.description,
-        warehouses: (role.warehouses || []).map((w: any) => w.warehouseId),
-        customers: Array.from(
-          new Set(
-            (role.warehouses || [])
-              .map((w: any) => w.warehouse?.customerId)
-              .filter(Boolean),
-          ),
-        ),
-      })),
-      menus: userMenus || [],
-    };
-
-    await cache.delete(`tokenAccess:${user.id}`);
-    // Store with encrypted token as the key, TTL matched to the access token's own lifetime
+  private async storeToRedis(session: any) {
+    await cache.delete(`tokenAccess:${session.id}`);
+    // TTL matched to the access token's own lifetime
     await cache.set(
-      `tokenAccess:${user.id}`,
-      data,
+      `tokenAccess:${session.id}`,
+      session,
       Number(SecretManager.env.JWT_ACCESS_EXPIRES_IN),
     );
   }

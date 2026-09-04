@@ -37,9 +37,4 @@ interface IPayloadJwt {
   type: string;
 }
 
-// JWT access bersifat stateless (tanpa cache/Redis) — identitas
-// (role, roles, menus, email) dibawa di klaim. Konsekuensi: token tidak bisa
-// dicabut sebelum expired (logout = client buang token) dan klaim menus
-// memperbesar token. Kalau perlu revocable, blacklist via DB per jti.
-
 export { ILoginAttempt, ILoginHistory, ILoginUser, IPayloadJwt };
