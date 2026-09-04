@@ -65,7 +65,7 @@ export class RefreshTokenService {
     )?.role;
     const activeRoleId = activeRole?.id;
 
-    // identitas di klaim JWT — verifikasi stateless tanpa cache/Redis
+    // identity is rebuilt from the DB and stored in the Redis session
     const userMenus = activeRoleId
       ? await this.userRepository.getUserAccessibleMenusByRole(
           user.id,
@@ -73,15 +73,22 @@ export class RefreshTokenService {
         )
       : [];
 
-    const roles = user.userRoles.map((role) => ({
+    const roles = user.userRoles.map((role: any) => ({
       id: role.role.id,
       name: role.role.name,
       description: role.role.description,
-      branches: role.branches.map((branch) => branch.branchId),
+      warehouses: (role.warehouses || []).map((w: any) => w.warehouseId),
+      customers: Array.from(
+        new Set(
+          (role.warehouses || [])
+            .map((w: any) => w.warehouse?.customerId)
+            .filter(Boolean),
+        ),
+      ),
     }));
 
-    // klaim warehouse & customer (code/name) untuk validasi akses warehouse.
-    // Warehouse dibatasi ke ROLE AKTIF saja (konsisten dengan menus).
+    // warehouse & customer (code/name) for warehouse access validation.
+    // Warehouses are limited to the ACTIVE ROLE only (consistent with menus).
     const allUserRoleWarehouses =
       user.userRoles.find(
         (ur: any) => ur.role?.name === user.asRole,
@@ -111,15 +118,6 @@ export class RefreshTokenService {
       sub: user.id,
       iss: SecretManager.env.BASE_URL,
       type: 'access',
-      email: user.email,
-      name: user.name,
-      role: user.asRole,
-      roleId: activeRoleId,
-      roles: roles,
-      menus: userMenus,
-      customerCode: activeCustomer?.code ?? null,
-      customerName: activeCustomer?.name ?? null,
-      warehouses: accessibleWarehouses,
     };
 
     const payloadRefresh: IPayloadJwt = {
@@ -142,23 +140,31 @@ export class RefreshTokenService {
     // Encrypt the access token for enhanced security
     const encryptedAccessToken = TokenEncryption.encrypt(accessToken);
 
-    // Rotasi refresh token: blacklist token lama agar tidak dipakai ulang
+    // Refresh token rotation: blacklist the old token so it can't be reused
     await cache.set(
       'tokenBlacklist:' + blaklistRefreshToken,
       blaklistRefreshToken,
       60
     );
 
-    // Session store lintas service (auth terpusat di Redis)
-    await cache.set(`tokenAccess:${user.id}`, {
-      id: user.id,
-      token: encryptedAccessToken,
-      email: user.email,
-      name: user.name,
-      role: user.asRole,
-      roles: roles,
-      menus: userMenus,
-    });
+    // Cross-service session store (centralized auth in Redis), TTL = access token lifetime
+    await cache.set(
+      `tokenAccess:${user.id}`,
+      {
+        id: user.id,
+        token: encryptedAccessToken,
+        email: user.email,
+        name: user.name,
+        role: user.asRole,
+        customerId: activeCustomerId,
+        customerCode: activeCustomer?.code ?? null,
+        customerName: activeCustomer?.name ?? null,
+        roles: roles,
+        menus: userMenus,
+        warehouses: accessibleWarehouses,
+      },
+      Number(SecretManager.env.JWT_ACCESS_EXPIRES_IN),
+    );
 
     return {
       type: 'bearer',
