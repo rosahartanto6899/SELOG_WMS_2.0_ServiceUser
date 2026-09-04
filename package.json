@@ -39,7 +39,7 @@
     "crypto-js": "^4.2.0",
     "ejs": "^3.1.10",
     "express": "^4.21.2",
-    "helmet": "^7.2.0",
+    "helmet": "^8.3.0",
     "inversify": "^6.2.2",
     "inversify-express-utils": "^6.4.10",
     "ioredis": "^6.0.0",
