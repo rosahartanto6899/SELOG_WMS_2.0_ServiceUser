@@ -208,6 +208,56 @@ export class LoginService {
     }
   }
 
+  /**
+   * Switch active warehouse. Body: { warehouseId } — must belong to the
+   * active role's warehouses; customer context follows the warehouse's owner.
+   */
+  async switchWarehouse(req: any): Promise<any> {
+    try {
+      const userToken = req.user;
+      const warehouseId = req.body.warehouseId;
+      const user = await this.userRepository.userExistsProvider(
+        userToken.tokenEmail
+      );
+
+      if (!user?.isActive) throw new NotFoundException('User not found');
+
+      const roleId =
+        (user.asRole &&
+          user.userRoles.find((r: any) => r.role.name === user.asRole)?.role
+            ?.id) ||
+        user.userRoles[0]?.role.id;
+      const activeRole = user.userRoles.find(
+        (ur: any) => ur.role?.id === roleId,
+      );
+      const match = (activeRole?.warehouses || []).find(
+        (w: any) => w.warehouseId === warehouseId,
+      );
+      if (!match?.warehouse) {
+        throw new ForbiddenException('forbidden access');
+      }
+
+      // keep token (parity switch-customer); customer ikut warehouse
+      const currentToken = req.headers.authorization?.split(' ')[1];
+      const data = await this.generateToken(
+        user,
+        null,
+        match.warehouse.customerId
+          ? { id: match.warehouse.customerId }
+          : null,
+        currentToken,
+        match.warehouse
+      );
+
+      await this.storeToRedis(data.session);
+
+      return { data, httpCode: HTTP_STATUS.OK };
+    } catch (error) {
+      if (error instanceof Error) throw error;
+      throw new InternalServerErrorException(error as any);
+    }
+  }
+
   async saveLoginHistory(
     user: any,
     tokenRole?: string,
@@ -564,7 +614,8 @@ export class LoginService {
     user: any,
     tokenRole: any = null,
     tokenCustomer: any = null,
-    reuseAccessToken: string = null
+    reuseAccessToken: string = null,
+    tokenWarehouse: any = null
   ) {
     if (user?.asRole && !tokenRole) {
       const role = user.userRoles.find((r: any) => r.role.name === user.asRole);
@@ -631,6 +682,16 @@ export class LoginService {
         ? ((await Customer.findByPk(activeCustomerId))?.get({ plain: true }) ?? null)
         : null);
 
+    // Switch warehouse: default = warehouse pertama milik customer aktif;
+    // tokenWarehouse eksplisit menimpa (harus tetap milik role aktif).
+    const activeWarehouse =
+      tokenWarehouse ??
+      allUserRoleWarehouses.find(
+        (w: any) => w.warehouse?.customerId === activeCustomerId,
+      )?.warehouse ??
+      allUserRoleWarehouses[0]?.warehouse ??
+      null;
+
     const userMenus = roleId
       ? await this.userRepository.getUserAccessibleMenusByRole(user.id, roleId)
       : [];
@@ -683,6 +744,9 @@ export class LoginService {
         roles: roles,
         menus: userMenus,
         warehouses: accessibleWarehouses,
+        activeWarehouseId: activeWarehouse?.id ?? null,
+        activeWarehouseCode: activeWarehouse?.code ?? null,
+        activeWarehouseName: activeWarehouse?.name ?? null,
       },
       user: {
         id: user.id,
@@ -693,6 +757,9 @@ export class LoginService {
         roles: roles,
         customerId: activeCustomerId,
         customers: accessibleCustomers,
+        warehouseId: activeWarehouse?.id ?? null,
+        warehouseCode: activeWarehouse?.code ?? null,
+        warehouseName: activeWarehouse?.name ?? null,
         isInternal: 1,
       },
     };
