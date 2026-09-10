@@ -114,6 +114,18 @@ export class RefreshTokenService {
         (w: any) => w.warehouse?.customerId === activeCustomerId,
       )?.warehouse?.customer ?? null;
 
+    // preserve the active warehouse across refresh (switch-warehouse context);
+    // falls back to the role's first warehouse when the old session is gone
+    const prevSession = await cache.get<{ activeWarehouseId?: string | null }>(
+      `tokenAccess:${user.id}`
+    );
+    const activeWarehouse =
+      allUserRoleWarehouses.find(
+        (w: any) => w.warehouse?.id === prevSession?.activeWarehouseId,
+      )?.warehouse ??
+      allUserRoleWarehouses[0]?.warehouse ??
+      null;
+
     const payloadAccess: IPayloadJwt = {
       sub: user.id,
       iss: SecretManager.env.BASE_URL,
@@ -162,6 +174,9 @@ export class RefreshTokenService {
         roles: roles,
         menus: userMenus,
         warehouses: accessibleWarehouses,
+        activeWarehouseId: activeWarehouse?.id ?? null,
+        activeWarehouseCode: activeWarehouse?.code ?? null,
+        activeWarehouseName: activeWarehouse?.name ?? null,
       },
       Number(SecretManager.env.JWT_ACCESS_EXPIRES_IN),
     );
