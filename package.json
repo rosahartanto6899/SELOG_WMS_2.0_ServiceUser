@@ -58,7 +58,7 @@
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^4.6.3",
     "tedious": "^20.0.0",
-    "ua-parser-js": "^1.0.37",
+    "ua-parser-js": "^2.0.10",
     "winston": "^3.17.0"
   },
   "devDependencies": {
