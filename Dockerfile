@@ -1,7 +1,7 @@
 ###################
 # BUILD
 ###################
-FROM node:20-slim AS build
+FROM node:26-slim AS build
 
 # Install required packages for native modules (canvas)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -32,7 +32,7 @@ RUN npm ci --ignore-scripts --audit=false && \
 # DEPLOY
 ###################
 
-FROM node:20-slim AS deploy
+FROM node:26-slim AS deploy
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
