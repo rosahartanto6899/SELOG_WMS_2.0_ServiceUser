@@ -54,6 +54,7 @@ export class MenuRepository {
             required: false,
             separate: true,
             where: this.filterDeleted,
+            order: [['order', 'ASC']],
           },
           {
             model: Menu,

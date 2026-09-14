@@ -8,7 +8,7 @@ import { inject } from 'inversify';
 import { BodyValidation } from '@/shared-libs/base';
 import { withLogging } from '@/shared-libs/helpers/logging.helper';
 import { MICROSERVICE_IDENTIFIERS } from '@/shared-libs/constants';
-import { ByProviderDto, LocalLoginDto, SwitchRoleDto, SwitchCustomerDto } from './dtos/login.dto';
+import { ByProviderDto, LocalLoginDto, SwitchRoleDto, SwitchCustomerDto, SwitchWarehouseDto } from './dtos/login.dto';
 import { LoginService } from './command.service';
 
 /**
@@ -126,5 +126,34 @@ export class LoginController extends BaseHttpController {
   )
   async switchCustomer(@request() req: any) {
     return await this.loginService.switchCustomer(req);
+  }
+
+  /**
+   * @swagger
+   * /v1/login/switch-warehouse:
+   *   post:
+   *     summary: Switch active warehouse (customer context mengikuti warehouse)
+   *     tags: [Authentication]
+   *     security:
+   *       - bearerAuth: []
+   *       - api_key: []
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema: { $ref: '#/components/schemas/SwitchWarehouseDto' }
+   *     responses:
+   *       200:
+   *         description: Warehouse switched successfully
+   *       403:
+   *         description: forbidden access
+   */
+  @httpPost(
+    '/switch-warehouse',
+    BodyValidation(SwitchWarehouseDto),
+    withLogging('switch-warehouse', MICROSERVICE_IDENTIFIERS.SERVICE_USER)
+  )
+  async switchWarehouse(@request() req: any) {
+    return await this.loginService.switchWarehouse(req);
   }
 }

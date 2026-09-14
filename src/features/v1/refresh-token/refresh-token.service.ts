@@ -5,8 +5,7 @@ import {
   UnauthorizedException,
   ForbiddenException,
 } from '@/shared-libs/exceptions';
-// import { default as cache } from '@/shared-libs/utils/cache.util'; // ponytail: sementara pakai memory-cache (tanpa Redis)
-import { default as cache } from '@/utils/memory-cache.util';
+import { default as cache } from '@/shared-libs/utils/cache.util'; // restore: shared Redis session store (cross-service auth)
 import { default as SecretManager } from '@/shared-libs/utils/secret-manager.util';
 import { TokenEncryption } from '@/shared-libs/utils/token-encryption.util';
 import { UserRepository } from './repositories';
@@ -30,7 +29,7 @@ export class RefreshTokenService {
     const decode = this.validateToken(blaklistRefreshToken);
     const user = await this.userRepository.getById(decode.sub);
 
-    const data = await this.generateToken(user, blaklistRefreshToken, decode);
+    const data = await this.generateToken(user, blaklistRefreshToken);
 
     return {
       data: data,
@@ -59,11 +58,74 @@ export class RefreshTokenService {
 
     return decode;
   }
-  private async generateToken(
-    user: any,
-    blaklistRefreshToken: string,
-    decode: any
-  ) {
+  private async generateToken(user: any, blaklistRefreshToken: string) {
+    // Determine the active role ID
+    const activeRole = user.userRoles.find(
+      (ur: any) => ur.role.name === user.asRole
+    )?.role;
+    const activeRoleId = activeRole?.id;
+
+    // identity is rebuilt from the DB and stored in the Redis session
+    const userMenus = activeRoleId
+      ? await this.userRepository.getUserAccessibleMenusByRole(
+          user.id,
+          activeRoleId
+        )
+      : [];
+
+    const roles = user.userRoles.map((role: any) => ({
+      id: role.role.id,
+      name: role.role.name,
+      description: role.role.description,
+      warehouses: (role.warehouses || []).map((w: any) => w.warehouseId),
+      customers: Array.from(
+        new Set(
+          (role.warehouses || [])
+            .map((w: any) => w.warehouse?.customerId)
+            .filter(Boolean),
+        ),
+      ),
+    }));
+
+    // warehouse & customer (code/name) for warehouse access validation.
+    // Warehouses are limited to the ACTIVE ROLE only (consistent with menus).
+    const allUserRoleWarehouses =
+      user.userRoles.find(
+        (ur: any) => ur.role?.name === user.asRole,
+      )?.warehouses || [];
+    const accessibleWarehouses = Array.from(
+      new Map<string, { warehouseCode: string; warehouseName: string | null }>(
+        allUserRoleWarehouses
+          .filter((w: any) => w.warehouse?.code)
+          .map((w: any) => [
+            w.warehouse.code,
+            {
+              warehouseCode: w.warehouse.code,
+              warehouseName: w.warehouse.name ?? null,
+            },
+          ]),
+      ).values(),
+    );
+    const activeCustomerId =
+      allUserRoleWarehouses.find((w: any) => w.warehouse?.customerId)
+        ?.warehouse?.customerId ?? null;
+    const activeCustomer =
+      allUserRoleWarehouses.find(
+        (w: any) => w.warehouse?.customerId === activeCustomerId,
+      )?.warehouse?.customer ?? null;
+
+    // preserve the active warehouse across refresh (switch-warehouse context);
+    // falls back to the role's first warehouse when the old session is gone
+    const prevSession = await cache.get<{ activeWarehouseId?: string | null }>(
+      `tokenAccess:${user.id}`
+    );
+    const activeWarehouse =
+      allUserRoleWarehouses.find(
+        (w: any) => w.warehouse?.id === prevSession?.activeWarehouseId,
+      )?.warehouse ??
+      allUserRoleWarehouses[0]?.warehouse ??
+      null;
+
     const payloadAccess: IPayloadJwt = {
       sub: user.id,
       iss: SecretManager.env.BASE_URL,
@@ -90,61 +152,39 @@ export class RefreshTokenService {
     // Encrypt the access token for enhanced security
     const encryptedAccessToken = TokenEncryption.encrypt(accessToken);
 
-    await this.storeToRedis(encryptedAccessToken, blaklistRefreshToken, decode);
+    // Refresh token rotation: blacklist the old token so it can't be reused
+    await cache.set(
+      'tokenBlacklist:' + blaklistRefreshToken,
+      blaklistRefreshToken,
+      60
+    );
+
+    // Cross-service session store (centralized auth in Redis), TTL = access token lifetime
+    await cache.set(
+      `tokenAccess:${user.id}`,
+      {
+        id: user.id,
+        token: encryptedAccessToken,
+        email: user.email,
+        name: user.name,
+        role: user.asRole,
+        customerId: activeCustomerId,
+        customerCode: activeCustomer?.code ?? null,
+        customerName: activeCustomer?.name ?? null,
+        roles: roles,
+        menus: userMenus,
+        warehouses: accessibleWarehouses,
+        activeWarehouseId: activeWarehouse?.id ?? null,
+        activeWarehouseCode: activeWarehouse?.code ?? null,
+        activeWarehouseName: activeWarehouse?.name ?? null,
+      },
+      Number(SecretManager.env.JWT_ACCESS_EXPIRES_IN),
+    );
 
     return {
       type: 'bearer',
       accessToken: encryptedAccessToken,
       refreshToken,
     };
-  }
-
-  private async storeToRedis(
-    encryptedAccessToken: string,
-    blaklistRefreshToken: string,
-    decode: any
-  ): Promise<void> {
-    const { sub } = decode;
-
-    const user = await this.userRepository.getById(sub);
-
-    // Determine the active role ID
-    const activeRole = user.userRoles.find(
-      (ur: any) => ur.role.name === user.asRole
-    )?.role;
-
-    const activeRoleId = activeRole?.id;
-
-    // Get user accessible menus for the active role only
-    const userMenus = activeRoleId
-      ? await this.userRepository.getUserAccessibleMenusByRole(
-          user.id,
-          activeRoleId
-        )
-      : [];
-
-    let data = {
-      id: sub,
-      token: encryptedAccessToken,
-      email: user.email,
-      name: user.name,
-      role: user.asRole,
-      roles: [],
-      menus: userMenus,
-    };
-
-    data.roles = user.userRoles.map((role) => ({
-      id: role.role.id,
-      name: role.role.name,
-      description: role.role.description,
-      branches: role.branches.map((branch) => branch.branchId),
-    }));
-
-    await cache.set(
-      'tokenBlacklist:' + blaklistRefreshToken,
-      blaklistRefreshToken,
-      60
-    );
-    await cache.set(`tokenAccess:${user.id}`, data);
   }
 }

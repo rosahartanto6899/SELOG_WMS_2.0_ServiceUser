@@ -7,6 +7,7 @@ import {
   UserRole,
   UserRoleWarehouse,
   Warehouse,
+  Customer,
 } from '@/database/entities';
 
 export class UserRepository {
@@ -33,6 +34,7 @@ export class UserRepository {
                   {
                     model: Warehouse,
                     as: 'warehouse',
+                    include: [{ model: Customer, as: 'customer' }],
                   },
                 ],
               },
@@ -53,7 +55,16 @@ export class UserRepository {
   ): Promise<any> {
     // Query menus that user has access to through a specific role
     const accessibleMenus = await Menu.findAll({
-      attributes: ['id', 'menuCode'],
+      attributes: [
+        'id',
+        'menuCode',
+        'menu',
+        'url',
+        'icon',
+        'parentId',
+        'order',
+        'level',
+      ],
       where: {
         deletedAt: { [Op.is]: null },
       },
@@ -61,13 +72,7 @@ export class UserRepository {
         {
           model: Uam,
           as: 'uams',
-          attributes: [
-            'canCreate',
-            'canRead',
-            'canUpdate',
-            'canDelete',
-            'canEtc',
-          ],
+          attributes: ['canCreate', 'canRead', 'canUpdate', 'canDelete'],
           where: {
             deletedAt: { [Op.is]: null },
             canRead: true, // At least read permission is required
@@ -122,39 +127,26 @@ export class UserRepository {
         canRead: uam?.canRead || false,
         canUpdate: uam?.canUpdate || false,
         canDelete: uam?.canDelete || false,
-        canEtc: uam?.canEtc || false,
+        canEtc: false,
       };
 
       menuMap.set(menuId, {
         id: menuData.id,
         menuCode: menuData.menuCode,
+        menuName: menuData.menu,
+        menuUrl: menuData.url,
+        menuIcon: menuData.icon,
+        parentId: menuData.parentId,
+        order: menuData.order,
+        level: menuData.level,
         permissions,
+        children: [],
       });
     });
 
-    // Build hierarchical structure
-    const menuHierarchy: any[] = [];
-    const processedMenus = Array.from(menuMap.values());
-
-    // First, add all parent menus (level 1 or no parentId)
-    processedMenus
-      .filter((menu) => !menu.parentId)
-      .sort((a, b) => a.order - b.order)
-      .forEach((parentMenu) => {
-        menuHierarchy.push(parentMenu);
-      });
-
-    // Then, add children to their respective parents
-    processedMenus
-      .filter((menu) => menu.parentId)
-      .sort((a, b) => a.order - b.order)
-      .forEach((childMenu) => {
-        const parent = menuMap.get(childMenu.parentId);
-        if (parent) {
-          parent.children.push(childMenu);
-        }
-      });
-
-    return menuHierarchy;
+    return Array.from(menuMap.values()).sort(
+      (a: any, b: any) =>
+        (a.level ?? 0) - (b.level ?? 0) || (a.order ?? 0) - (b.order ?? 0)
+    );
   }
 }

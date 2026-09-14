@@ -15,7 +15,7 @@ import { IsIn, IsNumber, IsOptional, ValidateIf } from 'class-validator';
  *       properties:
  *         order:
  *           type: string
- *           enum: [menuName, menuLink, createdAt, updatedAt]
+ *           enum: [menuName, menuLink, menuOrder, createdAt, updatedAt]
  *         sort:
  *           type: string
  *           enum: [asc, desc]
@@ -36,7 +36,7 @@ import { IsIn, IsNumber, IsOptional, ValidateIf } from 'class-validator';
 
 export class ListDto {
   @IsOptional()
-  @IsIn(['menuName', 'menuLink', 'createdAt', 'updatedAt'])
+  @IsIn(['menuName', 'menuLink', 'menuOrder', 'createdAt', 'updatedAt'])
   order: string;
 
   @IsOptional()

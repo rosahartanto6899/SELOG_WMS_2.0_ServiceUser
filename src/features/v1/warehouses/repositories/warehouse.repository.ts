@@ -38,7 +38,7 @@ export class WarehouseRepository {
       limit,
       order: [[order, sort]],
       distinct: true,
-      col: 'ID', // ponytail: kolom fisik "ID" (quoted); attribute map id→ID
+      col: 'ID', // kolom fisik "ID" (quoted); attribute map id→ID
     });
     return {
       data: rows,

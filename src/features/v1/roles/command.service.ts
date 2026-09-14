@@ -71,7 +71,6 @@ export class CommandService {
         canRead: false,
         canUpdate: false,
         canDelete: false,
-        canEtc: false,
       }));
 
       // Save the role

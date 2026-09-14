@@ -24,10 +24,15 @@ interface ILoginHistory {
 interface IPayloadJwt {
   sub: string;
   iss: string;
-  roleId?: number;
+  roleId?: string;
   role?: string;
-  roles?: string;
+  roles?: any[];
+  name?: string;
+  menus?: any[];
   email?: string;
+  customerCode?: string | null;
+  customerName?: string | null;
+  warehouses?: { warehouseCode: string; warehouseName: string | null }[];
   customerId?: string | null;
   type: string;
 }

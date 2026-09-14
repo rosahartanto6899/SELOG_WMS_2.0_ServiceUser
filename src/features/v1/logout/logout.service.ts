@@ -1,13 +1,12 @@
 import { injectable } from 'inversify';
 import { HTTP_STATUS } from '@/shared-libs/constants/http-status.constant';
-// import { default as cache } from '@/shared-libs/utils/cache.util'; // ponytail: sementara pakai memory-cache (tanpa Redis)
-import { default as cache } from '@/utils/memory-cache.util';
+import { default as cache } from '@/shared-libs/utils/cache.util';
 import { TokenEncryption } from '@/shared-libs/utils/token-encryption.util';
 
 @injectable()
 export class LogoutService {
   /**
-   * Logout user by blacklisting the JWT token.
+   * Logout user by blacklisting the JWT token (server-side, di Redis).
    * @param req Express request object.
    * @returns {Promise<Object>} An object containing the response data and HTTP code.
    */
@@ -28,7 +27,7 @@ export class LogoutService {
         // Blacklist the decrypted JWT token
         await cache.set(`tokenBlacklist:${token}`, { token });
 
-        // Also clean up the tokenAccess entry using the encrypted token
+        // Also clean up the tokenAccess entry
         const userToken = req.user;
         if (userToken?.tokenUserId) {
           await cache.delete(`tokenAccess:${userToken.tokenUserId}`);

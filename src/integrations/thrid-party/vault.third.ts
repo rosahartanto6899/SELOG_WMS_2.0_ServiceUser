@@ -49,7 +49,7 @@ export class VaultClient {
         );
         for (const key in envConfig) {
           if (envConfig.hasOwnProperty(key)) {
-            this.env[key] = process.env[key];
+            this.env[key] = process.env[key] ?? envConfig[key];
           }
         }
       }

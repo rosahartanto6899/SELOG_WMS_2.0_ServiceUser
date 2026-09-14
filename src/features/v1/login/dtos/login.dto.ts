@@ -61,3 +61,9 @@ export class SwitchCustomerDto {
   @IsNotEmpty()
   customerId: string;
 }
+
+export class SwitchWarehouseDto {
+  @IsString()
+  @IsNotEmpty()
+  warehouseId: string;
+}

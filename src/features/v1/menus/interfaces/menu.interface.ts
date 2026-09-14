@@ -5,7 +5,6 @@ interface IDataUam {
   canRead: boolean;
   canUpdate: boolean;
   canDelete: boolean;
-  canEtc: boolean;
 }
 
 export { IDataUam };

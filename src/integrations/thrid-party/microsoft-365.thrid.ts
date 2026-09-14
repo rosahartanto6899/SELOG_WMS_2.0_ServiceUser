@@ -1,17 +1,15 @@
 import axios, { AxiosInstance } from 'axios';
 import * as fs from 'fs';
 import * as path from 'path';
-import NodeCache from 'node-cache';
+import { default as cache } from '@/shared-libs/utils/cache.util';
 import { IEmail } from '@/shared-libs/interfaces/email.interface';
 import { default as SecretManager } from '@/shared-libs/utils/secret-manager.util';
 
 export class Microsoft365 implements IEmail {
   private readonly client: AxiosInstance;
-  private readonly tokenCache: NodeCache;
 
   constructor() {
     this.client = axios.create();
-    this.tokenCache = new NodeCache({ stdTTL: 60 * 50 }); // Cache token for 50 minutes
   }
 
   async send(data: any, bodyTemplate: any): Promise<void> {
@@ -87,7 +85,7 @@ export class Microsoft365 implements IEmail {
   }
 
   private async getToken(): Promise<string> {
-    const cachedToken = this.tokenCache.get<string>('token_0365');
+    const cachedToken = await cache.get<string>('integration:microsoft365:token');
     if (cachedToken) {
       return cachedToken;
     }
@@ -104,7 +102,11 @@ export class Microsoft365 implements IEmail {
       );
 
       const tokenData = response.data;
-      this.tokenCache.set('token_0365', tokenData.access_token);
+      await cache.set(
+        'integration:microsoft365:token',
+        tokenData.access_token,
+        60 * 50 // 50 menit, selaras TTL token M365
+      );
       return tokenData.access_token;
     } catch (error) {
       console.error('Failed to get token:', error);
