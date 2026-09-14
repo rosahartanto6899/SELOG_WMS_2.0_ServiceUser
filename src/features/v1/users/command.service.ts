@@ -1,4 +1,5 @@
 import { injectable, inject } from 'inversify';
+import * as argon2 from 'argon2';
 import { BadRequestException, ForbiddenException } from '@/shared-libs/exceptions';
 import { HTTP_STATUS } from '@/shared-libs/constants/http-status.constant';
 import {
@@ -51,6 +52,7 @@ export class CommandService {
       const dataUser: IDataUser = {
         name: body.name,
         email: body.email,
+        ...(body.password ? { password: await argon2.hash(body.password) } : {}),
         phone: sanitizedPhone,
         isActive: body.isActive,
         nrp: body.nrp,
@@ -267,6 +269,7 @@ export class CommandService {
         phone: sanitizedPhone,
         updatedBy: user.tokenUserId,
         nrp: body.nrp,
+        ...(body.password ? { password: await argon2.hash(body.password) } : {}),
       };
 
       const allWarehouseIds = body.roles.flatMap((role) =>

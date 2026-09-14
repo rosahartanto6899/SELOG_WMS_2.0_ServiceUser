@@ -1,6 +1,7 @@
 interface IDataUser {
   name: string;
   email: string;
+  password?: string;
   phone: string;
   isActive: boolean;
   nrp: string;

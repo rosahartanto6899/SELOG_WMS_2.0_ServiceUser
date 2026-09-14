@@ -9,6 +9,7 @@ import {
   IsEmail,
   Contains,
   MaxLength,
+  MinLength,
   ArrayMinSize,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
@@ -103,6 +104,15 @@ export class UpdateDto {
   })
   @MaxLength(100, { message: 'email must be at most 100 characters long' })
   email: string;
+
+  @IsOptional()
+  @MinLength(16, {
+    message: 'Password must be at least 16 characters long',
+  })
+  @MaxLength(64, {
+    message: 'Password must be at most 64 characters long',
+  })
+  password?: string;
 
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @Matches(/^\d+$/, {

@@ -54,6 +54,7 @@ export class UserRepository {
     const conditions = { id: { [Op.in]: ids }, ...this.filterDeleted };
     const users = await User.findAll({
       where: conditions,
+      attributes: { exclude: ['password'] },
     });
 
     return users?.map((user) => user.get({ plain: true })) || [];
