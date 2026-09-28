@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import { injectable, inject } from 'inversify';
 import { HTTP_STATUS } from '@/shared-libs/constants/http-status.constant';
+import { tenantScopedWarehouses } from '@/shared-libs/helpers/tenant.helper';
 import {
   UnauthorizedException,
   ForbiddenException,
@@ -88,40 +89,44 @@ export class RefreshTokenService {
     }));
 
     // warehouse & customer (code/name) for warehouse access validation.
-    // Warehouses are limited to the ACTIVE ROLE only (consistent with menus).
+    // Warehouses are limited to the ACTIVE ROLE and the ACTIVE CUSTOMER
+    // only (tenant scope) — lihat tenantScopedWarehouses.
     const allUserRoleWarehouses =
       user.userRoles.find(
         (ur: any) => ur.role?.name === user.asRole,
       )?.warehouses || [];
-    const accessibleWarehouses = Array.from(
-      new Map<string, { warehouseCode: string; warehouseName: string | null }>(
-        allUserRoleWarehouses
-          .filter((w: any) => w.warehouse?.code)
-          .map((w: any) => [
-            w.warehouse.code,
-            {
-              warehouseCode: w.warehouse.code,
-              warehouseName: w.warehouse.name ?? null,
-            },
-          ]),
-      ).values(),
-    );
+    // preserve the active context across refresh — prev session wins over
+    // order-dependent derivation (first warehouse's customer bisa bukan
+    // customer yang sedang aktif user)
+    const prevSession = await cache.get<{
+      activeWarehouseId?: string | null;
+      customerId?: string | null;
+    }>(`tokenAccess:${user.id}`);
     const activeCustomerId =
+      prevSession?.customerId ??
       allUserRoleWarehouses.find((w: any) => w.warehouse?.customerId)
-        ?.warehouse?.customerId ?? null;
+        ?.warehouse?.customerId ??
+      null;
+    const accessibleWarehouses = tenantScopedWarehouses(
+      allUserRoleWarehouses,
+      activeCustomerId,
+    );
     const activeCustomer =
       allUserRoleWarehouses.find(
         (w: any) => w.warehouse?.customerId === activeCustomerId,
       )?.warehouse?.customer ?? null;
 
     // preserve the active warehouse across refresh (switch-warehouse context);
-    // falls back to the role's first warehouse when the old session is gone
-    const prevSession = await cache.get<{ activeWarehouseId?: string | null }>(
-      `tokenAccess:${user.id}`
-    );
+    // must still belong to the ACTIVE customer — falls back to the active
+    // customer's first warehouse when the old session is gone
     const activeWarehouse =
       allUserRoleWarehouses.find(
-        (w: any) => w.warehouse?.id === prevSession?.activeWarehouseId,
+        (w: any) =>
+          w.warehouse?.id === prevSession?.activeWarehouseId &&
+          w.warehouse?.customerId === activeCustomerId,
+      )?.warehouse ??
+      allUserRoleWarehouses.find(
+        (w: any) => w.warehouse?.customerId === activeCustomerId,
       )?.warehouse ??
       allUserRoleWarehouses[0]?.warehouse ??
       null;

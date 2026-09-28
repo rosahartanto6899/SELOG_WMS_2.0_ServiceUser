@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import * as argon2 from 'argon2';
 import { inject, injectable } from 'inversify';
 import { HTTP_STATUS } from '@/shared-libs/constants/http-status.constant';
+import { tenantScopedWarehouses } from '@/shared-libs/helpers/tenant.helper';
 import {
   ForbiddenException,
   InternalServerErrorException,
@@ -653,23 +654,15 @@ export class LoginService {
 
     // warehouse & customer (code/name) for warehouse access validation
     // (e.g. AHM upload) — stored in the Redis session, not in JWT claims.
-    // Warehouses are limited to the ACTIVE ROLE only (consistent with menus).
+    // Warehouses are limited to the ACTIVE ROLE and the ACTIVE CUSTOMER
+    // only (tenant scope) — lihat tenantScopedWarehouses.
     const activeUserRole = user.userRoles.find(
       (ur: any) => ur.role?.id === roleId,
     );
     const allUserRoleWarehouses = activeUserRole?.warehouses || [];
-    const accessibleWarehouses = Array.from(
-      new Map<string, { warehouseCode: string; warehouseName: string | null }>(
-        allUserRoleWarehouses
-          .filter((w: any) => w.warehouse?.code)
-          .map((w: any) => [
-            w.warehouse.code,
-            {
-              warehouseCode: w.warehouse.code,
-              warehouseName: w.warehouse.name ?? null,
-            },
-          ]),
-      ).values(),
+    const accessibleWarehouses = tenantScopedWarehouses(
+      allUserRoleWarehouses,
+      activeCustomerId,
     );
     // Fallback: the active customer may not be joined through the role
     // warehouses (e.g. warehouse rows without CustomerId) — resolve directly
