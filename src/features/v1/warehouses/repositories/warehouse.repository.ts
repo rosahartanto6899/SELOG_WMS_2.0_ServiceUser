@@ -19,6 +19,17 @@ export class WarehouseRepository {
     });
   }
 
+  /** List {code, name} semua warehouse aktif — m2m service-to-service. */
+  public async getAllInternal(): Promise<{ code: string; name: string | null }[]> {
+    const rows = await Warehouse.findAll({
+      attributes: ['code', 'name'],
+      where: { ...this.filterDeleted },
+      order: [['code', 'ASC']],
+      raw: true,
+    });
+    return rows as unknown as { code: string; name: string | null }[];
+  }
+
   public async getAllWithPagination(
     condition: any,
     pagination: any,

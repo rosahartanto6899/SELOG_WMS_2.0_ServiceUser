@@ -96,6 +96,25 @@ export class WarehouseController extends BaseHttpController {
 
   /**
    * @swagger
+   * /v1/warehouses/internal/all:
+   *   get:
+   *     summary: All active warehouses {code, name} (internal service-to-service, basic auth)
+   *     tags: [Warehouses]
+   *     security: [{ basicAuth: [] }]
+   *     responses:
+   *       200: { description: Warehouse list }
+   *       401: { description: Unauthorized }
+   */
+  @httpGet(
+    '/internal/all',
+    WarehouseController.warehouseLogging.custom('internal-all'),
+  )
+  async internalAll() {
+    return await this.queryService.internalAll();
+  }
+
+  /**
+   * @swagger
    * /v1/warehouses/{id}:
    *   get:
    *     summary: Warehouse detail

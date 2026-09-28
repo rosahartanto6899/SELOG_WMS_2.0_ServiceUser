@@ -41,6 +41,13 @@ export class QueryService {
     return { data, page: pagination, httpCode: HTTP_STATUS.OK };
   }
 
+  /** GET /v1/warehouses/internal/all — m2m Basic auth (ServiceIncoming
+   *  incoming-file-processor; parity GetWarehouseFromInternalServiceAsync). */
+  async internalAll() {
+    const data = await this.warehouseRepository.getAllInternal();
+    return { data, httpCode: HTTP_STATUS.OK };
+  }
+
   async dropdown(): Promise<any> {
     const { data } = await this.warehouseRepository.getAllWithPagination(
       {},
