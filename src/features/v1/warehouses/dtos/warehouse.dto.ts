@@ -4,6 +4,7 @@ import {
   IsString,
   MaxLength,
   IsUUID,
+  IsBoolean,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 
@@ -61,4 +62,17 @@ export class UpdateWarehouseDto {
   @IsString()
   @MaxLength(50)
   phone?: string;
+
+  /** Toggle stop transaction — true = blokir binning & picking (guard
+   *  ServiceIncoming/ServiceOutgoing). Dipakai halaman Stock Adjustment. */
+  @IsOptional()
+  @IsBoolean()
+  stopTransaction?: boolean;
+}
+
+export class WarehouseCodeParamDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(50)
+  code: string;
 }

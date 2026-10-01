@@ -1,6 +1,7 @@
 import { default as SecretManager } from '@/shared-libs/utils/secret-manager.util';
 import InternalService from './internal-service';
-import axios from 'axios';
+
+const RETRY = { retries: 2, minTimeout: 200, factor: 2 };
 
 export class MasterDataService extends InternalService {
   constructor() {
@@ -27,16 +28,19 @@ export class MasterDataService extends InternalService {
       limit: '9999',
     };
     this.headers['Authorization'] = token;
-    const config = {
-      method: 'GET',
-      url: `${this.url}/v1/branches`,
-      params,
-      headers: this.headers,
+
+    return this.request<any>({
+      serviceName: 'master-data',
+      config: {
+        method: 'GET',
+        url: `${this.url}/v1/branches`,
+        params,
+        headers: this.headers,
+      },
       timeout: this.timeout,
-    };
-
-    const response = await axios.request(config);
-
-    return response?.data?.data ? response.data.data : null;
+      retry: RETRY,
+      mapResponse: (response) =>
+        response?.data?.data ? response.data.data : null,
+    });
   }
 }

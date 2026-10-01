@@ -21,6 +21,7 @@ export interface WarehouseAttributes {
   name?: string;
   address?: string;
   phone?: string;
+  stopTransaction?: boolean;
   createdAt?: Date;
   createdBy?: string;
   updatedAt?: Date;

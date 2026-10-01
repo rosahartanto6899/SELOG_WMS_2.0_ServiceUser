@@ -5,6 +5,6 @@ export * from '@/features/v1/login/login.controller';
 export * from '@/features/v1/logout/logout.controller';
 export * from '@/features/v1/users-access/user-access.controller';
 export * from '@/features/v1/refresh-token/refresh-token.controller';
-export * from '@/features/v1/health-check/health-check.controller';
+export * from '@/features/v1/health/health.controller';
 export * from '@/features/v1/warehouses/warehouse.controller';
 export * from '@/features/v1/customers/customer.controller';

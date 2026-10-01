@@ -1,4 +1,8 @@
 import { default as SecretManager } from '@/shared-libs/utils/secret-manager.util';
+import {
+  executeOutboundRequest,
+  OutboundRequestOptions,
+} from '@/shared-libs/utils/outbound';
 
 class InternalService {
   protected readonly timeout = 1000 * 10;
@@ -28,6 +32,12 @@ class InternalService {
     }
 
     return apigUrl.replace('*', serviceName);
+  }
+
+  /** Outbound pipeline (timeout selalu aktif; retry/cache/breaker opt-in)
+   *  — endpoint untuk method di subclass (README outbound shared-libs). */
+  protected request<T>(options: OutboundRequestOptions<T>): Promise<T> {
+    return executeOutboundRequest<T>(options);
   }
 }
 

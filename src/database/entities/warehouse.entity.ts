@@ -23,6 +23,7 @@ const Warehouse: ModelDefined<
     name: { type: DataTypes.STRING(75), field: 'Name' },
     address: { type: DataTypes.STRING(200), field: 'Address' },
     phone: { type: DataTypes.STRING(50), field: 'Phone' },
+    stopTransaction: { type: DataTypes.BOOLEAN, field: 'StopTransaction' },
     createdAt: { type: DataTypes.DATE, field: 'CreatedAt' },
     createdBy: { type: DataTypes.STRING(100), field: 'CreatedBy' },
     updatedAt: { type: DataTypes.DATE, field: 'UpdatedAt' },
