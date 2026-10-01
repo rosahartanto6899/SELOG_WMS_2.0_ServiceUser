@@ -21,6 +21,7 @@ import {
   UpdateWarehouseDto,
   DetailDto,
   ListDto,
+  WarehouseCodeParamDto,
 } from './dtos';
 import { CommandService } from './command.service';
 import { QueryService } from './query.service';
@@ -111,6 +112,28 @@ export class WarehouseController extends BaseHttpController {
   )
   async internalAll() {
     return await this.queryService.internalAll();
+  }
+
+  /**
+   * @swagger
+   * /v1/warehouses/internal/stop-transaction/{code}:
+   *   get:
+   *     summary: Flag stop transaction warehouse by code (guard binning/picking)
+   *     tags: [Warehouses]
+   *     security: [{ basicAuth: [] }]
+   *     parameters:
+   *       - { in: path, name: code, required: true, schema: { type: string } }
+   *     responses:
+   *       200: { description: "{ code, stopTransaction } | null" }
+   *       401: { description: Unauthorized }
+   */
+  @httpGet(
+    '/internal/stop-transaction/:code',
+    ParamValidation(WarehouseCodeParamDto),
+    WarehouseController.warehouseLogging.custom('internal-stop-transaction'),
+  )
+  async internalStopTransaction(@requestParam('code') code: string) {
+    return await this.queryService.internalStopTransaction(code);
   }
 
   /**

@@ -48,6 +48,13 @@ export class QueryService {
     return { data, httpCode: HTTP_STATUS.OK };
   }
 
+  /** GET /v1/warehouses/internal/stop-transaction/:code — guard binning/
+   *  picking ServiceIncoming/ServiceOutgoing (Basic auth m2m). */
+  async internalStopTransaction(code: string) {
+    const data = await this.warehouseRepository.getStopTransactionByCode(code);
+    return { data, httpCode: HTTP_STATUS.OK };
+  }
+
   async dropdown(): Promise<any> {
     const { data } = await this.warehouseRepository.getAllWithPagination(
       {},

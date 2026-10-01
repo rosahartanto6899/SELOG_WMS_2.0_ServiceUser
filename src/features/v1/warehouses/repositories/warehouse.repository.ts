@@ -30,6 +30,19 @@ export class WarehouseRepository {
     return rows as unknown as { code: string; name: string | null }[];
   }
 
+  /** Flag stop-transaction satu warehouse by code — guard binning/picking
+   *  (m2m). raw: { code, stopTransaction }. */
+  public async getStopTransactionByCode(
+    code: string
+  ): Promise<{ code: string; stopTransaction: boolean | null } | null> {
+    const row = await Warehouse.findOne({
+      attributes: ['code', 'stopTransaction'],
+      where: { code, ...this.filterDeleted },
+      raw: true,
+    });
+    return (row as any) ?? null;
+  }
+
   public async getAllWithPagination(
     condition: any,
     pagination: any,
